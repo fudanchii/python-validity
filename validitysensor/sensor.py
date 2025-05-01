@@ -863,54 +863,56 @@ class Sensor:
         return rc
 
     def match_finger(self) -> typing.Tuple[int, int, bytes]:
-        try:
-            stg_id = 0  # match against any storage
-            usr_id = 0  # match against any user
-            cmd = pack('<BBBHHHHH', 0x5e, 2, 0xff, stg_id, usr_id, 1, 0, 0)
-            rsp = tls.app(cmd)
-            assert_status(rsp)
+        stg_id = 0  # match against any storage
+        usr_id = 0  # match against any user
+        cmd = pack('<BBBHHHHH', 0x5e, 2, 0xff, stg_id, usr_id, 1, 0, 0)
+        rsp = tls.app(cmd)
+        assert_status(rsp)
 
+        while True:
             b = usb.wait_int()
-            if b[0] != 3:
+            if len(b) > 0 and b[0] != 3:
                 raise Exception('Finger not recognized: %s' % hexlify(b).decode())
+            elif len(b) > 0:
+                break
 
-            # get results
-            rsp = tls.app(unhexlify('6000000000'))
-            assert_status(rsp)
-            rsp = rsp[2:]
+        # get results
+        rsp = tls.app(unhexlify('6000000000'))
+        assert_status(rsp)
+        rsp = rsp[2:]
 
-            (l, ), rsp = unpack('<H', rsp[:2]), rsp[2:]
-            if l != len(rsp):
-                raise Exception('Response size does not match')
+        (l, ), rsp = unpack('<H', rsp[:2]), rsp[2:]
+        if l != len(rsp):
+            raise Exception('Response size does not match')
 
-            rsp = self.parse_dict(rsp)
+        rsp = self.parse_dict(rsp)
 
-            usrid, subtype, hsh = rsp[1], rsp[3], rsp[4]
-            usrid, = unpack('<L', usrid)
-            subtype, = unpack('<H', subtype)
+        usrid, subtype, hsh = rsp[1], rsp[3], rsp[4]
+        usrid, = unpack('<L', usrid)
+        subtype, = unpack('<H', subtype)
 
-            return usrid, subtype, hsh
-        finally:
-            # cleanup, ignore any errors
-            tls.app(unhexlify('6200000000'))
+        return usrid, subtype, hsh
 
     def identify(self, update_cb: typing.Callable[[Exception], None]):
         while True:
             try:
                 glow_start_scan()
                 self.capture(CaptureMode.IDENTIFY)
-                break
+                return self.match_finger()
             except usb_core.USBError as e:
                 raise e
             except CancelledException as e:
-                glow_end_scan()
                 raise e
             except Exception as e:
                 # Capture failed, retry
                 update_cb(e)
                 sleep(1)
-
-        return self.match_finger()
+            finally:
+                try:
+                    glow_end_scan()
+                    tls.app(unhexlify('6200000000'))
+                except Exception as e:
+                    print(e)
 
     def get_finger_blobs(self, usrid: int, subtype: int):
         usr = db.get_user(usrid)
