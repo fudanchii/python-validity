@@ -27,6 +27,9 @@ line_update_type1_devices = [
     0xB5, 0x885, 0xB3, 0x143B, 0x1055, 0xE1, 0x8B1, 0xEA, 0xE4, 0xED, 0x1825, 0x1FF5, 0x199
 ]
 
+class FingerNotRecognized(Exception):
+    pass
+
 
 # TODO use more sophisticated glow patters in different cases
 def glow_start_scan():
@@ -872,7 +875,8 @@ class Sensor:
         while True:
             b = usb.wait_int()
             if len(b) > 0 and b[0] != 3:
-                raise Exception('Finger not recognized: %s' % hexlify(b).decode())
+                print('Finger not recognized: %s' % hexlify(b).decode())
+                raise FingerNotRecognized
             elif len(b) > 0:
                 break
 
@@ -902,6 +906,8 @@ class Sensor:
             except usb_core.USBError as e:
                 raise e
             except CancelledException as e:
+                raise e
+            except FingerNotRecognized as e:
                 raise e
             except Exception as e:
                 # Capture failed, retry
